@@ -3,8 +3,7 @@
 session_start();
 
 // On teste si je me suis bien connecté
-if ((isset($_SESSION['login']) && !empty($_SESSION['login'])) 
-	&& (isset($_SESSION['mdp']) && !empty($_SESSION['mdp']))) {
+if (!empty($_SESSION['login']) && !empty($_SESSION['mdp'])) {
 
 	$msgWelcome = strtoupper($_SESSION['login']);
 
@@ -59,7 +58,6 @@ if ((isset($_SESSION['login']) && !empty($_SESSION['login']))
 	
 	
 	<body>
-	
 		
 		<div id="lecteur">
 			<h2 id="titre_lecteur">Lecteur <span class="toggle"></span></h2>
@@ -135,10 +133,12 @@ if ((isset($_SESSION['login']) && !empty($_SESSION['login']))
 						<a href="#" id="deleteAllPlaylist" class="button_action">
 							<img src="img/deletePlaylist.png" class="img_action" title="Vide la playlist"/>
 						</a>
+						<a href="#" id="openCreationPlaylist" class="button_action">
+							<img src="img/createPlaylist.png" class="img_action" title="Créer une playlist"/>
+						</a>
 					</div>
 					<div>
-						<input type="text" id="search" placeholder="Recherche" value=""
-							   style="box-shadow:inset 0 0 4px #eee; width:150px; padding:4px 12px; border-radius:4px; border:1px solid silver; vertical-align: middle;">
+						<input type="text" id="search" placeholder="Recherche" value="" class="input_text">
 						<div id="searchIcon" class="notInProgress"></div>
 					</div>
 					
@@ -149,7 +149,7 @@ if ((isset($_SESSION['login']) && !empty($_SESSION['login']))
 			
 		</div>
 	
-		<!-- POP-UP -->
+		<!-- POP-UP INDEX BIBLIOTHEQUE -->
 		<div class="modal fade" id="indexPopup" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true" >
 			<div class="modal-dialog">
 				<div class="modal-content">
@@ -158,46 +158,76 @@ if ((isset($_SESSION['login']) && !empty($_SESSION['login']))
 						<h3>Indexation de la médiathèque</h3>
 					</div>
 					<div class="modal-body">
-						<pre><div id="detailsTraitementIndexation"></div></pre>
+						<div id="detailsTraitementIndexation"></div>
 					</div>
 					<div class="modal-footer">
-						<a id="cancelChangmtOuv" href="#" class="btn btn-default" data-dismiss="modal">OK</a>
+						<a id="annuler" href="#" class="btn btn-default" data-dismiss="modal">Annuler</a>
+						<a id="GO_index" href="#" class="btn btn-primary">OK</a>
 					</div>
 				</div>
 			</div>
 		</div>
-		
-		
+	
+		<!-- POP-UP CREATE PLAYLIST -->
+		<div class="modal fade" id="createPlaylistPopup" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true" >
+			<div class="modal-dialog">
+				<div class="modal-content">
+					<div class="modal-header">
+						<button class="close" data-dismiss="modal">×</button>
+						<h3>Création d'une nouvelle playlist</h3>
+					</div>
+					<div class="modal-body">
+						<div id="playlists"></div>
+						<input type="text" id="namePlaylist" placeholder="Nom de la playlist" value="" class="input_text">
+						<div id="messageGestionPlaylist"></div>
+					</div>
+					<div class="modal-footer">
+						<a href="#" class="btn btn-default" data-dismiss="modal">Annuler</a>
+						<a id="createPlaylist" href="#" class="btn btn-primary" data-dismiss="modal">Enregistrer</a>
+					</div>
+				</div>
+			</div>
+		</div>	
 		
 		
 <script type="text/javascript">
 //<![CDATA[
 $(document).ready( function() {
-	
+
+    var hDoc;
+    var speed = 400;
+    var $lecteur = $('#lecteur');
+
 	// Adapte la hauteur du bandeau lecteur
 	function drawBandeauLecteur(hDoc){
-		$("#lecteur").css("height", hDoc);
-	};
+        $lecteur.css("height", hDoc);
+	}
 	
-	// Initialize bandeau du lecteur
-	var hDoc = $(document).height();
-	drawBandeauLecteur(hDoc);
-	
-	// On resize
-	$( window ).resize(function() {
-		var hDoc = $(document).height();
+	// Ajuste la hauteur de la playlist
+	function ajusteHauteurPlaylist(){
+		var hPlayer = $(".jp-gui").outerHeight(true);
+		var hTitle = $("#titre_lecteur").outerHeight(true);
+		$(".jp-playlist").css("height", (hDoc - hPlayer - hTitle - 2));
+	}
+	ajusteHauteurPlaylist();
+
+    // On resize
+	$( window ).on('resize', function() {
+		hDoc = $(document).height();
 		drawBandeauLecteur(hDoc);
+		ajusteHauteurPlaylist();
 	});
 
-	
-	var speed = 400;
-	$('#lecteur').css("marginLeft", "-375px" );
+    // Initialize bandeau du lecteur
+    $( window).trigger('resize');
+
+    $lecteur.css("marginLeft", "-375px" );
 	$('.wrapper').css("marginLeft", "45px" );
 	$('#lecteur_jplayer').hide();
 	$('.toggle').html(">");
 	// Toggle lecteur
 	$('#titre_lecteur').on('click', function(){
-		var isOpen = ($('#lecteur').css('margin-left') == '0px');
+		var isOpen = ($lecteur.css('margin-left') == '0px');
 		if( isOpen ){
 			$('#lecteur').animate({ marginLeft: "-375px" }, speed );
 			$('.wrapper').animate({ marginLeft: "45px" }, speed );
@@ -257,7 +287,7 @@ $(document).ready( function() {
 				$("#searchIcon").removeClass("notInProgress").addClass("progressing");
 			},
 			success: function(r){
-				var resultats = JSON.parse(JSON.parse(r)).resultat;
+				var resultats = JSON.parse(r).resultat;
 				
 				for(i = 0; i < resultats.length; i++ ){
 					var track = resultats[i].track;
@@ -279,34 +309,128 @@ $(document).ready( function() {
 
 	// INDEXATION
 	$('#index').on("click", function(){
-		$.ajax({
-			type: "GET",
-			url: "php/indexe.php",
-			datatype: "json",
-			beforeSend: function() {
-				// On ajoute le spinner
-				$("#searchIcon").removeClass("notInProgress").addClass("progressing");
-				// On bloque la recherche
-				$("#search").prop('disabled', true);
-			},
-			success: function(r){
-				// Ouvre POP UP d'information
-				$("#indexPopup").modal('show');
-				// Ajoute le message dans la popup
-				$("#detailsTraitementIndexation").append(r);			
-			},
-			complete: function(){
-				// On enlève le spinner
-				$("#searchIcon").removeClass("progressing").addClass("notInProgress");
-				// On active la recherche
-				$("#search").prop('disabled', false);
-			}
+		// On affiche le bouton OK
+		$('#GO_index').show();
+		// Ajoute le message dans la popup
+		$("#detailsTraitementIndexation").html("Etes vous sur de vouloir lancer l'indexation de la bibliothèque ?"
+					+"<br/>Cette opération dure environ 30 sec.");
+		// Ouvre POP UP d'information
+		$("#indexPopup").modal('show');
+		
+		$('#GO_index').on("click", function(){
+			// On ajoute les spinners
+			$("#searchIcon").removeClass("notInProgress").addClass("progressing");
+			$("#detailsTraitementIndexation").html("<span id=\"waitIndexationIcon\" class=\"progressing\"></span><p>Indexation en cours...</p>");
+			// On bloque la recherche
+			$("#search").prop('disabled', true);
+			// On cache le bouton pour éviter de relancer une deuxième fois
+			$('#annuler, #GO_index').hide();
+			// On lance l'indexation
+			$.ajax({
+				type: "GET",
+				url: "php/indexe.php",
+				datatype: "json",
+				success: function(r){
+					// Ajoute le message dans la popup
+					$("#detailsTraitementIndexation").html("<pre>"+r+"</pre>");
+					// On affiche le bouton Annuler pour fermer la popup
+					$('#annuler').show();
+					// Ouvre POP UP d'information si fermée
+					$("#indexPopup").modal('show');	
+				},
+				complete: function(){
+					// On enlève le spinner
+					$("#searchIcon").removeClass("progressing").addClass("notInProgress");
+					// On active la recherche
+					$("#search").prop('disabled', false);
+				}
+			});
 		});
 	});
 	
 	// VIDE LA PLAYLIST
 	$('#deleteAllPlaylist').on("click", function(){
 		myPlaylist.remove();
+	});
+	
+	// Récupère les chansons de la playlist
+	function loadAndAdd(playlist){
+		$.ajax({
+			type: "GET",
+			url: "php/loadTracks.php",
+			datatype: "json",
+			data: "p="+playlist,
+			success: function(r){
+				var resultats = JSON.parse(r).resultat;
+				
+				for(i = 0; i < resultats.length; i++ ){
+					var track = resultats[i].track;
+					
+					var src = track[0].src;
+					var title = track[3].tit;
+					var moreInfo = track[1].art + " - " + track[2].alb;
+					
+					src = src.trim();
+					addToPlaylist(title, moreInfo, encodeURI(src));
+				}
+			}
+		});
+	}
+	// CREATION d'une playlist
+	function getPlaylists(){
+		// Liste les playlists existantes
+		$.ajax({
+			type: "GET",
+			url: "php/getPlaylists.php",
+			datatype: "json",
+			success: function(r){
+				var r_str = "";
+				var r_tab = JSON.parse(r);
+				for(i = 0; i < r_tab.length; i++ ){
+					r_str += "<li class=\"playlistSelected\">" + r_tab[i].name + "</li>";
+				}
+				$("#playlists").html("<ul>" + r_str + "</ul>");
+				$('.playlistSelected').on("click", function(){
+					loadAndAdd(this.textContent);
+				});
+			},
+			complete: function(){
+				// Ouvre POP UP de saisi
+				$("#createPlaylistPopup").modal('show');
+			}
+		});
+	}
+	$('#openCreationPlaylist').on("click", function(){
+		getPlaylists();
+	});
+
+	
+	function handlePlaylist(create){
+		$.ajax({
+			type: "GET",
+			url: "php/handlePlaylist.php",
+			data: "title="+$('#namePlaylist').val()+"&create="+create,
+			datatype: "json",
+			beforeSend: function() { 
+				$("#searchIcon").removeClass("notInProgress").addClass("progressing");
+				$("#messageGestionPlaylist").hide();
+			},
+			success: function(r){
+				$("#messageGestionPlaylist").html(r);
+				$("#messageGestionPlaylist").show();
+			},
+			complete: function(){
+				$("#searchIcon").removeClass("progressing").addClass("notInProgress");
+			}
+		});
+	}
+	// Vérifie le nom de la playlist à créer
+	$("#namePlaylist").on("input", function(){
+		setTimeout(handlePlaylist("FALSE"), 500);
+	});
+	// Crée la playlist
+	$('#createPlaylist').on("click", function(){
+		handlePlaylist("TRUE");
 	});
 	
 	// Récupère les informations et ajoute à la playlist
@@ -390,7 +514,6 @@ $(document).ready( function() {
 						$("#off").addClass("diplay_none");
 						$("#on").removeClass("diplay_none");
 					}
-
 				}
 			});
 		}
@@ -408,6 +531,7 @@ $(document).ready( function() {
 			addToPlaylist(title, moreInfo, encodeURI(src));
 		});
 	});
+	
 	
 	// MENU CONTEXTUEL sur fichier
 	$.contextMenu({
@@ -445,6 +569,11 @@ $(document).ready( function() {
 					var win = window.open(url, '_blank');
 					win.focus();
 				}
+			},
+			"folder": {
+				name: "Ajouter cette musique à une playlist",
+				icon: "playlist",
+				items: <?php $menu='OK'; include "php/getPlaylists.php"; ?>
 			}
         },
 		events: {
@@ -454,49 +583,29 @@ $(document).ready( function() {
 			hide: function(opt){ 
 				this.removeClass('currently-showing-menu');
 			}
-		}
-    });
-	
-	// TODO ne marche pas si dossier non déplié !!!
-
-	// MENU CONTEXTUEL sur dossier
-/*
-	$.contextMenu({
-        selector: '.c_menu_dir', 
-        items: {
-            "playAlbum": {	
-				name: "Lire l'album", 
-				icon: "add", 
-				callback: function(key, options) {
-					$(this).click();
-					var array = $(this).first().find('ul').find('.c_menu_file').first();
-					if( array.length > 0 ){
-						for( i=0; i<array.length; i++ ){
-							var track = array[i];
-							var a = $(track).children()[0];
-							var url = $(a).attr("rel");
-							getInfoAndAddToPlaylist(url);
-						}
-					}
+		},
+		callback: function(key, options) {
+            var playlist = options.$selected[0].textContent;
+			if( $(this).hasClass("fileFound") ){
+				var url = $(this).attr("data-src").trim();
+				var name = $(this).attr("data-tit").trim();
+			} else {
+				var a = $(this).children()[0];
+				var url = $(a).attr("rel");
+				var name = $(a).html();
+			}
+			$.ajax({
+				type: "GET",
+				url: "php/addSongToPlaylist.php",
+				data: "playlist="+playlist+"&url="+url+"&name="+name,
+				datatype: "json",
+				success: function(msg){
+					console.log(msg);
 				}
-			}
+			});
         },
-		events: {
-			show: function(opt){
-				this.addClass('currently-showing-menu');
-			},
-			hide: function(opt){ 
-				this.removeClass('currently-showing-menu');
-			}
-		}
-    });	
-*/
+    });
 
-	
-	// Ajuste la hauteur de la playlist
-	var hPlayer = $(".jp-gui").outerHeight(true);
-	var hTitle = $("#titre_lecteur").outerHeight(true);
-	$(".jp-playlist").css("height", (hDoc - hPlayer - hTitle - 2));
 	
 });
 //]]>
